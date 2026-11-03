@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoring Suhu Ruang</title>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg:             #f4f4f2;
+    --surface-1:      #fcfcfb;
+    --border:         #e3e2de;
+    --grid:           #ecebe7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #7a7975;
+    --series-temp:    #eb6834;  /* categorical slot 2 (orange) */
+    --series-hum:     #2a78d6;  /* categorical slot 1 (blue) */
+    --threshold:      #7a7975;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #d03b3b;
+    --lamp-on:        #fab219;
+    --lamp-off:       #c9c8c3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg:             #111110;
+      --surface-1:      #1a1a19;
+      --border:         #2e2e2c;
+      --grid:           #2a2a28;
+      --text-primary:   #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #8f8e88;
+      --series-temp:    #d95926;
+      --series-hum:     #3987e5;
+      --threshold:      #8f8e88;
+      --lamp-off:       #3d3d3a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:             #111110;
+    --surface-1:      #1a1a19;
+    --border:         #2e2e2c;
+    --grid:           #2a2a28;
+    --text-primary:   #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #8f8e88;
+    --series-temp:    #d95926;
+    --series-hum:     #3987e5;
+    --threshold:      #8f8e88;
+    --lamp-off:       #3d3d3a;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+  header h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--text-secondary); }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface-1);
+    font-size: 13px; color: var(--text-secondary); white-space: nowrap;
+  }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .pill[data-state="good"] .dot { background: var(--good); }
+  .pill[data-state="warning"] .dot { background: var(--warning); }
+  .pill[data-state="critical"] .dot { background: var(--critical); }
+  .pill b { color: var(--text-primary); font-weight: 600; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 8px; letter-spacing: .02em; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .hero { font-size: 44px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .hero .unit { font-size: 20px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+
+  /* Pita suhu dengan zona hysteresis */
+  .band { position: relative; height: 10px; border-radius: 5px; margin: 14px 0 22px;
+          background: linear-gradient(90deg, var(--grid) 0 0); }
+  .band .zone { position: absolute; top: 0; bottom: 0; background: var(--border); border-radius: 0; }
+  .band .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--threshold); }
+  .band .tick span { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .band .marker { position: absolute; top: -4px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%;
+                  background: var(--series-temp); border: 3px solid var(--surface-1); box-shadow: 0 0 0 1px var(--border);
+                  transition: left .4s ease; }
+
+  .lamp { display: flex; align-items: center; gap: 14px; }
+  .bulb { width: 56px; height: 56px; flex: none; }
+  .bulb .glass { fill: var(--lamp-off); transition: fill .3s; }
+  .bulb .base { fill: var(--text-muted); }
+  .lamp[data-on="true"] .bulb .glass { fill: var(--lamp-on); }
+  .lamp[data-on="true"] .bulb { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--lamp-on) 60%, transparent)); }
+
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .charts > *, .bottom > * { min-width: 0; }
+  .chart-box { position: relative; height: 260px; }
+  @media (max-width: 760px) { .charts { grid-template-columns: 1fr; } }
+
+  .bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .bottom { grid-template-columns: 1fr; } }
+  .table-wrap { max-height: 260px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); font-size: 13px; }
+  th { color: var(--text-muted); font-weight: 500; position: sticky; top: 0; background: var(--surface-1); }
+  td.num { text-align: right; } th.num { text-align: right; }
+  .empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
+
+  details.settings { margin-top: 12px; }
+  details.settings summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  .form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 10px; }
+  .form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); flex: 1 1 240px; }
+  .form input { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text-primary); }
+  .form button { font: inherit; padding: 7px 14px; border-radius: 6px; border: 0; background: var(--series-hum); color: #fff; cursor: pointer; }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Monitoring Suhu &amp; Kontrol Lampu
+      <small>ESP32 + DHT22 + Relay · data langsung dari broker HiveMQ</small>
+    </h1>
+    <div class="pills">
+      <span class="pill" id="pillBroker" data-state="warning"><span class="dot"></span>Broker: <b id="txtBroker">menghubungkan…</b></span>
+      <span class="pill" id="pillDevice"><span class="dot"></span>ESP32: <b id="txtDevice">belum diketahui</b></span>
+      <span class="pill" id="pillData"><span class="dot"></span>Data: <b id="txtData">menunggu</b></span>
+    </div>
+  </header>
+
+  <section class="tiles">
+    <div class="card">
+      <h2>Suhu</h2>
+      <div class="hero"><span id="valTemp">--</span><span class="unit">°C</span></div>
+      <div class="band" id="band" aria-hidden="true">
+        <div class="zone" id="bandZone"></div>
+        <div class="tick" id="tickOff"><span>27°</span></div>
+        <div class="tick" id="tickOn"><span>30°</span></div>
+        <div class="marker" id="bandMarker" style="left:0;display:none"></div>
+      </div>
+      <div class="sub" id="zoneText">Zona: –</div>
+    </div>
+
+    <div class="card">
+      <h2>Kelembapan</h2>
+      <div class="hero"><span id="valHum">--</span><span class="unit">%</span></div>
+      <div class="sub">Diperbarui <span id="lastUpdate">–</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Lampu (relay)</h2>
+      <div class="lamp" id="lamp" data-on="false">
+        <svg class="bulb" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="glass" d="M12 2a7 7 0 0 0-4 12.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26A7 7 0 0 0 12 2z"/>
+          <rect class="base" x="9" y="19" width="6" height="3" rx="1"/>
+        </svg>
+        <div>
+          <div class="hero" id="valRelay" style="font-size:32px">--</div>
+          <div class="sub">Berubah <span id="relayChanged">–</span> · <span id="relayCount">0</span>× sejak dibuka</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <div class="card">
+      <h2>Riwayat suhu (°C)</h2>
+      <div class="chart-box"><canvas id="chartTemp" role="img" aria-label="Grafik garis suhu terhadap waktu dengan garis ambang 27 dan 30 derajat"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Riwayat kelembapan (%)</h2>
+      <div class="chart-box"><canvas id="chartHum" role="img" aria-label="Grafik garis kelembapan terhadap waktu"></canvas></div>
+    </div>
+  </section>
+
+  <section class="bottom">
+    <div class="card">
+      <h2>Data terbaru</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Waktu</th><th class="num">Suhu (°C)</th><th class="num">Kelembapan (%)</th><th>Relay</th></tr></thead>
+          <tbody id="tblData"></tbody>
+        </table>
+        <div class="empty" id="tblDataEmpty">Belum ada data. Jalankan simulasi Wokwi.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Log kejadian</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Waktu</th><th>Kejadian</th></tr></thead>
+          <tbody id="tblLog"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <details class="settings">
+    <summary>Pengaturan topik MQTT</summary>
+    <form class="form" id="formPrefix">
+      <label>Prefix topik (harus sama dengan <code>sketch.ino</code>)
+        <input id="inpPrefix" spellcheck="false" autocomplete="off">
+      </label>
+      <button type="submit">Simpan &amp; sambung ulang</button>
+    </form>
+    <p class="sub">Subscribe ke <code id="txtTopics"></code> melalui <code id="txtUrl"></code></p>
+  </details>
+</div>
+
+<script>
+const BROKER_URL = "wss://broker.hivemq.com:8884/mqtt";
+const DEFAULT_PREFIX = "appliediot/sukma/ruang1";
+const TEMP_ON = 30, TEMP_OFF = 27;
+const BAND_MIN = 15, BAND_MAX = 40;   // rentang tampilan pita suhu
+const MAX_POINTS = 150;               // 150 × 2 detik = 5 menit
+const STALE_MS = 10000;               // data dianggap terlambat setelah 10 detik
+
+const $ = id => document.getElementById(id);
+const fmtTime = d => d.toLocaleTimeString("id-ID", { hour12: false });
+
+let prefix = DEFAULT_PREFIX;
+try { prefix = localStorage.getItem("mqttPrefix") || DEFAULT_PREFIX; } catch (e) {}
+
+let client = null;
+let lastDataAt = 0;
+let relayState = null;
+let relayCount = 0;
+
+// ---------- Warna dari token CSS ----------
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+// ---------- Grafik ----------
+const thresholdPlugin = {
+  id: "thresholds",
+  afterDatasetsDraw(chart, _args, opts) {
+    if (!opts || !opts.lines) return;
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = cssVar("--threshold");
+    ctx.fillStyle = cssVar("--text-muted");
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textAlign = "right";
+    for (const l of opts.lines) {
+      const py = y.getPixelForValue(l.value);
+      if (py < a.top || py > a.bottom) continue;
+      ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+      ctx.fillText(l.label, a.right - 4, py - 4);
+    }
+    ctx.restore();
+  }
+};
+
+const crosshairPlugin = {
+  id: "crosshair",
+  afterDraw(chart) {
+    const act = chart.tooltip && chart.tooltip.getActiveElements();
+    if (!act || !act.length) return;
+    const { ctx, chartArea: a } = chart;
+    const x = act[0].element.x;
+    ctx.save();
+    ctx.strokeStyle = cssVar("--threshold");
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, a.top); ctx.lineTo(x, a.bottom); ctx.stroke();
+    ctx.restore();
+  }
+};
+
+function makeChart(canvas, colorVar, unit, suggested, lines) {
+  return new Chart(canvas, {
+    type: "line",
+    data: { labels: [], datasets: [{ data: [], borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, tension: 0.25 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { displayColors: false, callbacks: { label: c => `${c.parsed.y.toFixed(1)} ${unit}` } },
+        thresholds: { lines }
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+        y: { suggestedMin: suggested[0], suggestedMax: suggested[1], ticks: { maxTicksLimit: 6 } }
+      }
+    },
+    plugins: [thresholdPlugin, crosshairPlugin]
+  });
+}
+
+const chartTemp = makeChart($("chartTemp"), "--series-temp", "°C", [20, 35],
+  [{ value: TEMP_ON, label: "30 °C · relay ON" }, { value: TEMP_OFF, label: "27 °C · relay OFF" }]);
+const chartHum = makeChart($("chartHum"), "--series-hum", "%", [0, 100], []);
+
+function applyTheme() {
+  const text = cssVar("--text-muted"), grid = cssVar("--grid");
+  for (const [c, v] of [[chartTemp, "--series-temp"], [chartHum, "--series-hum"]]) {
+    c.data.datasets[0].borderColor = cssVar(v);
+    c.data.datasets[0].pointHoverBackgroundColor = cssVar(v);
+    c.data.datasets[0].pointHoverBorderColor = cssVar("--surface-1");
+    c.data.datasets[0].pointHoverBorderWidth = 2;
+    c.options.scales.x.ticks.color = text;
+    c.options.scales.y.ticks.color = text;
+    c.options.scales.y.grid.color = grid;
+    c.options.scales.x.border = { color: grid };
+    c.options.scales.y.border = { display: false };
+    c.update("none");
+  }
+}
+applyTheme();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
+function pushPoint(chart, label, value) {
+  chart.data.labels.push(label);
+  chart.data.datasets[0].data.push(value);
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+  chart.update("none");
+}
+
+// ---------- Pita suhu ----------
+const pct = v => Math.min(100, Math.max(0, (v - BAND_MIN) / (BAND_MAX - BAND_MIN) * 100));
+$("tickOff").style.left = pct(TEMP_OFF) + "%";
+$("tickOn").style.left = pct(TEMP_ON) + "%";
+$("bandZone").style.left = pct(TEMP_OFF) + "%";
+$("bandZone").style.width = (pct(TEMP_ON) - pct(TEMP_OFF)) + "%";
+
+function zoneOf(t) {
+  if (t >= TEMP_ON) return "di atas 30 °C → relay harus ON";
+  if (t <= TEMP_OFF) return "di bawah/sama 27 °C → relay harus OFF";
+  return "27–30 °C (hysteresis) → status relay dipertahankan";
+}
+
+// ---------- Status ----------
+function setPill(id, state, text) {
+  const pill = $("pill" + id);
+  if (state) pill.dataset.state = state; else delete pill.dataset.state;
+  $("txt" + id).textContent = text;
+}
+
+function log(text) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${fmtTime(new Date())}</td><td></td>`;
+  tr.lastChild.textContent = text;
+  const body = $("tblLog");
+  body.prepend(tr);
+  while (body.rows.length > 100) body.deleteRow(-1);
+}
+
+function setRelay(value, source) {
+  const on = value === "ON";
+  $("lamp").dataset.on = on;
+  $("valRelay").textContent = on ? "ON" : "OFF";
+  if (relayState === value) return;
+  if (relayState !== null) {
+    relayCount++;
+    $("relayCount").textContent = relayCount;
+    $("relayChanged").textContent = fmtTime(new Date());
+  }
+  log(`Relay ${on ? "ON" : "OFF"}` + (source === "retained" ? " (status tersimpan di broker)" : ""));
+  relayState = value;
+}
+
+// ---------- Pesan MQTT ----------
+function onData(obj) {
+  const now = new Date();
+  const t = Number(obj.suhu), h = Number(obj.kelembapan);
+  if (!Number.isFinite(t) || !Number.isFinite(h)) return;
+  lastDataAt = now.getTime();
+
+  $("valTemp").textContent = t.toFixed(1);
+  $("valHum").textContent = h.toFixed(1);
+  $("lastUpdate").textContent = fmtTime(now);
+  $("zoneText").textContent = "Zona: " + zoneOf(t);
+  const m = $("bandMarker");
+  m.style.display = "block";
+  m.style.left = pct(t) + "%";
+
+  const label = fmtTime(now);
+  pushPoint(chartTemp, label, t);
+  pushPoint(chartHum, label, h);
+
+  if (obj.relay === "ON" || obj.relay === "OFF") setRelay(obj.relay, "suhu");
+
+  $("tblDataEmpty").style.display = "none";
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${label}</td><td class="num">${t.toFixed(1)}</td><td class="num">${h.toFixed(1)}</td><td>${obj.relay}</td>`;
+  const body = $("tblData");
+  body.prepend(tr);
+  while (body.rows.length > 50) body.deleteRow(-1);
+  updateStale();
+}
+
+function onMessage(topic, buf, packet) {
+  const text = buf.toString();
+  if (topic === prefix + "/suhu") {
+    try { onData(JSON.parse(text)); } catch (e) { log("Payload suhu bukan JSON: " + text); }
+  } else if (topic === prefix + "/relay") {
+    if (text === "ON" || text === "OFF") setRelay(text, packet.retain ? "retained" : "relay");
+  } else if (topic === prefix + "/online") {
+    const online = text === "online";
+    setPill("Device", online ? "good" : "critical", online ? "online" : "offline");
+    log(`ESP32 ${online ? "online" : "offline"}` + (packet.retain ? " (status tersimpan di broker)" : ""));
+  }
+}
+
+function updateStale() {
+  if (!lastDataAt) return;
+  const age = Date.now() - lastDataAt;
+  if (age > STALE_MS) setPill("Data", "warning", `terlambat ${Math.round(age / 1000)} dtk`);
+  else setPill("Data", "good", "langsung");
+}
+setInterval(updateStale, 1000);
+
+// ---------- Koneksi ----------
+function connect() {
+  if (client) client.end(true);
+  const topics = ["suhu", "relay", "online"].map(s => `${prefix}/${s}`);
+  $("txtTopics").textContent = topics.join(", ");
+  $("txtUrl").textContent = BROKER_URL;
+  $("inpPrefix").value = prefix;
+
+  setPill("Broker", "warning", "menghubungkan…");
+  client = mqtt.connect(BROKER_URL, {
+    clientId: "dashboard-" + Math.random().toString(16).slice(2, 10),
+    clean: true, reconnectPeriod: 3000, connectTimeout: 10000
+  });
+  client.on("connect", () => {
+    setPill("Broker", "good", "terhubung");
+    client.subscribe(topics, { qos: 1 });
+    log("Terhubung ke broker, subscribe " + prefix + "/#");
+  });
+  client.on("reconnect", () => setPill("Broker", "warning", "menyambung ulang…"));
+  client.on("offline", () => setPill("Broker", "critical", "terputus"));
+  client.on("error", e => { setPill("Broker", "critical", "galat"); log("Galat MQTT: " + e.message); });
+  client.on("message", onMessage);
+}
+
+$("formPrefix").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = $("inpPrefix").value.trim().replace(/\/+$/, "");
+  if (!v) return;
+  prefix = v;
+  try { localStorage.setItem("mqttPrefix", prefix); } catch (err) {}
+  connect();
+});
+
+connect();
+</script>
+</body>
+</html>

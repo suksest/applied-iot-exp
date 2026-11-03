@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "author": "Sukma Setyaji",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay1",
+      "top": 19.4,
+      "left": 220.8,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -13.2,
+      "left": 455.4,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 128.75,
+      "left": 403.2,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": 182.7,
+      "left": 225,
+      "attrs": {
+        "temperature": "25",
+        "humidity": "60"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX0",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX0",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "esp:VIN",
+      "relay1:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:GND.1",
+      "relay1:GND",
+      "black",
+      []
+    ],
+    [
+      "esp:D23",
+      "relay1:IN",
+      "green",
+      []
+    ],
+    [
+      "esp:3V3",
+      "relay1:COM",
+      "red",
+      []
+    ],
+    [
+      "relay1:NO",
+      "led1:A",
+      "green",
+      []
+    ],
+    [
+      "led1:C",
+      "r1:2",
+      "green",
+      []
+    ],
+    [
+      "r1:1",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht1:SDA",
+      "esp:D15",
+      "green",
+      []
+    ]
+  ],
+  "dependencies": {}
+}
