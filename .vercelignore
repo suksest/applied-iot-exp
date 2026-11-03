@@ -1,0 +1,4 @@
+# Hanya dashboard yang di-deploy; firmware, build PlatformIO, dan laporan tidak diunggah
+/*
+!dashboard
+!vercel.json

@@ -39,3 +39,21 @@ Kondisi awal relay OFF. Program tidak memakai `delay()` yang memblokir; pembacaa
 - PubSubClient
 - DHT sensor library
 - Adafruit Unified Sensor
+
+## Dashboard web & deploy ke Vercel
+
+`dashboard/index.html` subscribe langsung ke HiveMQ lewat MQTT over WebSocket, jadi bisa dibuka lokal atau di-deploy sebagai situs statis.
+
+Konfigurasi deploy:
+
+- `vercel.json`: tanpa build, folder `dashboard/` disajikan sebagai root situs.
+- `.vercelignore`: hanya `dashboard/` dan `vercel.json` yang diunggah; firmware, `.pio/`, dan laporan tidak ikut.
+
+Deploy lewat CLI:
+
+```bash
+vercel        # preview
+vercel --prod # produksi
+```
+
+Atau impor repositori ini di dashboard Vercel (Framework Preset: *Other*); pengaturan diambil dari `vercel.json`, dan setiap push ke `main` otomatis ter-deploy.

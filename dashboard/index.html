@@ -400,7 +400,9 @@ function onData(obj) {
   pushPoint(chartTemp, label, t);
   pushPoint(chartHum, label, h);
 
-  if (obj.relay === "ON" || obj.relay === "OFF") setRelay(obj.relay, "suhu");
+  // Status lampu mengikuti topik /relay. Urutan MQTT hanya dijamin per topik, jadi field
+  // relay di sini bisa tertinggal dari /relay; dipakai hanya bila /relay belum pernah diterima.
+  if (relayState === null && (obj.relay === "ON" || obj.relay === "OFF")) setRelay(obj.relay, "suhu");
 
   $("tblDataEmpty").style.display = "none";
   const tr = document.createElement("tr");
