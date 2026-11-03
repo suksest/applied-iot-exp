@@ -1,6 +1,6 @@
 /*
  * Studi Kasus: Sistem Monitoring Suhu dan Kontrol Lampu Berbasis IoT
- * ESP32 DevKit V1 + DHT22 + Modul Relay + MQTT (HiveMQ) — simulasi Wokwi
+ * ESP32 DevKitC V4 + DHT22 + Modul Relay + MQTT (HiveMQ) — simulasi Wokwi
  *
  * - Membaca suhu & kelembapan DHT22 setiap 2 detik
  * - Mengirim data ke broker MQTT (JSON) secara berkala
@@ -102,7 +102,7 @@ void maintainWifi() {
   lastWifiAttempt = now;
   Serial.println("Menghubungkan ke WiFi...");
   WiFi.disconnect();
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid, password, 6);  // kanal 6 = kanal Wokwi-GUEST, tanpa scan sehingga cepat terhubung
 }
 
 // Menjaga koneksi MQTT tanpa memblokir loop

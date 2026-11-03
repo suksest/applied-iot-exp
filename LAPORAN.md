@@ -1,6 +1,6 @@
 # Tugas 3 — Sistem Monitoring Suhu dan Kontrol Lampu Berbasis IoT
 
-ESP32 DevKit V1 + DHT22 + Modul Relay 1 Channel + MQTT (HiveMQ), disimulasikan di Wokwi.
+ESP32 DevKitC V4 + DHT22 + Modul Relay 1 Channel + MQTT (HiveMQ), disimulasikan di Wokwi.
 
 | File                           | Isi                                                                      |
 | ------------------------------ | ------------------------------------------------------------------------ |
@@ -33,12 +33,12 @@ ESP32 DevKit V1 + DHT22 + Modul Relay 1 Channel + MQTT (HiveMQ), disimulasikan d
 | DHT22    | VCC          | 3V3                  | Catu daya sensor                    |
 | DHT22    | SDA (data)   | **GPIO 15**          | Jalur data suhu/kelembapan (1-wire) |
 | DHT22    | GND          | GND                  | Referensi ground                    |
-| Relay    | VCC          | VIN (5 V)            | Catu daya modul relay               |
+| Relay    | VCC          | 5V                   | Catu daya modul relay               |
 | Relay    | GND          | GND                  | Referensi ground                    |
 | Relay    | IN           | **GPIO 23**          | Sinyal kontrol relay                |
 | Relay    | COM          | 3V3                  | Sumber tegangan beban (lampu)       |
 | Relay    | NO           | Anoda LED            | Beban tersambung saat relay ON      |
-| LED      | Katoda       | Resistor 220 Ω → GND | Pembatas arus lampu                 |
+| LED      | Katoda       | Resistor 330 Ω → GND | Pembatas arus lampu                 |
 
 Lampu (LED) menyala ketika relay ON karena kontak COM–NO tertutup.
 
@@ -68,7 +68,7 @@ Lampu (LED) menyala ketika relay ON karena kontak COM–NO tertutup.
 | `setRelay()`                                       | Menulis GPIO 23 hanya jika status berubah, lalu menandai status perlu dikirim                                  |
 | `publishRelayState()`                              | Mengirim status relay (retained). Jika MQTT sedang putus, pengiriman ditunda sampai tersambung lagi            |
 | `readSensor()`                                     | Membaca DHT22, mengecek `isnan` (sensor gagal), menjalankan kontrol relay, lalu publish JSON                   |
-| `maintainWifi()`                                   | Menyambung ulang WiFi tiap 5 detik **tanpa** `while`/`delay` yang memblokir                                    |
+| `maintainWifi()`                                   | Menyambung ulang WiFi tiap 5 detik **tanpa** `while`/`delay` yang memblokir; memakai kanal 6 (kanal Wokwi-GUEST) agar tanpa scan|
 | `maintainMqtt()`                                   | Menyambung ulang MQTT tiap 5 detik, memasang _Last Will_ `offline`, publish `online`                           |
 | `loop()`                                           | Penjadwal berbasis `millis()`: jaga koneksi → `client.loop()` → baca sensor bila waktunya → kirim status relay |
 
@@ -89,20 +89,31 @@ Cara uji: jalankan simulasi, klik sensor DHT22 di Wokwi, geser nilai _temperatur
 | 5   | 27 °C    | Mati                          | OFF          | `OFF`                  | ✔       |
 | 6   | 26 °C    | Tetap mati                    | OFF          | —                      | ✔       |
 
-> Kolom "Hasil aktual" di atas berasal dari uji logika `hysteresis.h` dengan urutan suhu yang sama (semua lulus). **Cocokkan kembali dengan simulasi Wokwi** dan lampirkan tangkapan layarnya.
+Hasil aktual diambil dari simulasi Wokwi di VS Code. Slider DHT22 tidak selalu berhenti tepat di angka bulat, jadi suhu yang terbaca sedikit berbeda dari kolom "Suhu uji" (lihat keterangan tiap gambar). Semua nilai tetap berada di sisi ambang yang sama, sehingga hasil uji tidak berubah.
 
-Contoh keluaran Serial Monitor yang diharapkan:
+**Uji 1 — 25 °C:** WiFi dan MQTT terhubung, relay tetap OFF. Pesan `.../relay : OFF` di awal adalah status awal yang dikirim sekali setelah MQTT terhubung (retained), bukan perubahan status.
 
-```text
-Suhu: 29.9 C | Kelembapan: 60.0 %
-MQTT -> appliediot/sukma/ruang1/suhu : {"suhu":29.9,"kelembapan":60.0,"relay":"OFF"}
-Suhu: 30.0 C | Kelembapan: 60.0 %
-Relay ON (suhu 30.0 C)
-MQTT -> appliediot/sukma/ruang1/suhu : {"suhu":30.0,"kelembapan":60.0,"relay":"ON"}
-MQTT -> appliediot/sukma/ruang1/relay : ON
-```
+![Uji 1 — 25 °C](/pengujian/uji-1-25C.png)
 
-`<<sisipkan tangkapan layar Serial Monitor + LED untuk tiap baris uji>>`
+**Uji 2 — 30 °C (terbaca 30,4 °C):** suhu mencapai ambang atas, muncul `Relay ON` dan pesan `.../relay : ON`.
+
+![Uji 2 — 30 °C](/pengujian/uji-2-30C.png)
+
+**Uji 3 — 32 °C (terbaca 32,2 °C):** relay tetap ON, tidak ada pesan `.../relay` baru.
+
+![Uji 3 — 32 °C](/pengujian/uji-3-32C.png)
+
+**Uji 4 — 29 °C (terbaca 29,3 °C):** suhu di zona hysteresis, relay tetap ON. Saat slider digeser, suhu sempat terbaca 27,1 °C dan relay tetap ON karena belum mencapai ≤ 27 °C.
+
+![Uji 4 — 29 °C](/pengujian/uji-4-29C.png)
+
+**Uji 5 — 27 °C:** saat slider diturunkan, suhu sempat terbaca 25,8 °C (≤ 27 °C), lalu muncul `Relay OFF` dan pesan `.../relay : OFF`. Setelah itu suhu diatur ke 27,0 °C dan relay tetap OFF.
+
+![Uji 5 — 27 °C](/pengujian/uji-5-27C.png)
+
+**Uji 6 — 26 °C (terbaca 26,4 °C):** relay tetap OFF, tidak ada pesan `.../relay` baru.
+
+![Uji 6 — 26 °C](/pengujian/uji-6-26C.png)
 
 ---
 
