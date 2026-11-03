@@ -143,7 +143,9 @@ Isi dashboard:
 - Tabel data terbaru dan log kejadian (relay berubah, ESP32 online/offline)
 - Prefix topik bisa diganti dari bagian _Pengaturan topik MQTT_ (disimpan di browser)
 
-`<<sisipkan tangkapan layar dashboard web>>`
+![Dashboard web](/dashboard.png)
+
+_Data pada tangkapan layar ini dikirim oleh publisher uji yang meniru ESP32 (format pesan dan topik sama, urutan suhu mengikuti tabel pengujian: 25 → 30 → 32 → 29 → 27 → 26 °C). Grafik memperlihatkan hysteresis: relay ON saat suhu mencapai 30 °C, tetap ON di 29 °C, dan baru OFF di 27 °C._
 
 ---
 
